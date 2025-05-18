@@ -1,34 +1,26 @@
 import asyncio
-import logging
+import os
 import threading
 
 from fastapi import APIRouter, status, HTTPException
-from pydantic import BaseModel
-from serial import Serial, SerialException
+from serial import Serial
 
-from utils import state, SERIAL_PORT, BAUD_RATE, write_data, reset_state
+from collect import collect_state, write_data
+from models import DataCollectionRequest
 
+SERIAL_PORT = os.getenv("SERIAL_PORT")
+BAUD_RATE = int(os.getenv("BAUD_RATE"))
 router = APIRouter()
 
-
-class DataCollectionRequest(BaseModel):
-    label: str
-    duration: int
+ser = Serial(SERIAL_PORT, BAUD_RATE, bytesize=8, parity="N", stopbits=1)
 
 
 @router.post("/collect", status_code=status.HTTP_201_CREATED)
 async def collect(request: DataCollectionRequest) -> dict:
-    if state["collecting"]:
+    if collect_state["collecting"]:
         raise HTTPException(
             status_code=400, detail="Data collection already in progress"
         )
-
-    try:
-        ser = Serial(SERIAL_PORT, BAUD_RATE, bytesize=8, parity="N", stopbits=1)
-    except SerialException as e:
-        logging.error(f"Could not open serial port: {e}")
-        reset_state()
-        raise HTTPException(status_code=500, detail="Error opening serial port")
 
     thread = threading.Thread(target=asyncio.run, args=(write_data(request, ser),))
     thread.start()
@@ -36,6 +28,6 @@ async def collect(request: DataCollectionRequest) -> dict:
     return {"message": "Data collection started"}
 
 
-@router.get("/status")
-async def get_status():
-    return state
+@router.get("/collect/status")
+async def get_collect_status():
+    return collect_state
